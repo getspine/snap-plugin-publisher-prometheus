@@ -1,6 +1,8 @@
-hash: 6d16e6060281bf91f8906fdb70b56e6b41d6bc5d4e623d1d2653bf72087b0028
-updated: 2017-06-21T13:10:12.442516753+03:00
+hash: dfb7cfcefa8ece9743a45fa42a490402df74d87f925f7d7575e980b7b229b157
+updated: 2017-10-24T12:19:21.485076405-07:00
 imports:
+- name: github.com/cenkalti/backoff
+  version: 309aa717adbf351e92864cbedf9cca0b769a4b5a
 - name: github.com/golang/protobuf
   version: 1fb8fd32a09087bcd727225167edd31e1b9ceb24
   subpackages:
@@ -24,10 +26,19 @@ imports:
   - scheduler/wmap
 - name: github.com/robfig/cron
   version: 32d9c273155a0506d27cf73dd1246e86a470997e
+- name: github.com/sirupsen/logrus
+  version: be52937128b38f1d99787bb476c789e2af1147f1
 - name: github.com/Sirupsen/logrus
-  version: cd7d1bbe41066b6c1f19780f895901052150a575
+  version: be52937128b38f1d99787bb476c789e2af1147f1
+  repo: https://github.com/sirupsen/logrus.git
+- name: golang.org/x/net
+  version: 04557861f124410b768b1ba5bb3a91b705afbfc6
+  subpackages:
+  - context
+  - http2
+  - trace
 - name: golang.org/x/sys
-  version: 8d1157a435470616f975ff9bb013bea8d0962067
+  version: c8bc69bc2db9c57ccf979550bc69655df5039a8a
   subpackages:
   - unix
 - name: google.golang.org/grpc
@@ -36,18 +47,18 @@ imports:
   version: c1cd2254a6dd314c9d73c338c12688c9325d85c6
 testImports:
 - name: github.com/gopherjs/gopherjs
-  version: 00f306e07eaaaab04ea5dba605cd0e1eff9c6fb7
+  version: 415225646bb92c4449bb484646f2c95a98402f6f
   subpackages:
   - js
 - name: github.com/jtolds/gls
-  version: 8ddce2a84170772b95dd5d576c48d517b22cac63
+  version: 77f18212c9c7edc9bd6a33d383a7b545ce62f064
 - name: github.com/smartystreets/assertions
-  version: 2063fd1cc7c975db70502811a34b06ad034ccdf2
+  version: 0b37b35ec7434b77e77a4bb29b79677cced992ea
   subpackages:
   - internal/go-render/render
   - internal/oglematchers
 - name: github.com/smartystreets/goconvey
-  version: d4c757aa9afd1e2fc1832aaab209b5794eb336e1
+  version: 9e8dc3f972df6c8fcc0375ef492c24d0bb204857
   subpackages:
   - convey
   - convey/gotest

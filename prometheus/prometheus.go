@@ -13,7 +13,8 @@ import (
 	"sync"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
+	"github.com/cenkalti/backoff"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/intelsdi-x/snap/control/plugin"
 	"github.com/intelsdi-x/snap/control/plugin/cpolicy"
@@ -109,6 +110,34 @@ func (p *prometheusPublisher) GetConfigPolicy() (*cpolicy.ConfigPolicy, error) {
 	r4.Description = "Prometheus debug"
 	config.Add(r4)
 
+	r5, err := cpolicy.NewStringRule("job", false, "unused")
+	if err != nil {
+		panic(err)
+	}
+	r5.Description = "Prometheus job"
+	config.Add(r5)
+
+	r6, err := cpolicy.NewStringRule("instance", false, "")
+	if err != nil {
+		panic(err)
+	}
+	r6.Description = "Prometheus instance"
+	config.Add(r6)
+
+	r7, err := cpolicy.NewIntegerRule("retries", false, 10)
+	if err != nil {
+		panic(err)
+	}
+	r7.Description = "Number of retries"
+	config.Add(r7)
+
+	r8, err := cpolicy.NewIntegerRule("timeout_secs", false, 10)
+	if err != nil {
+		panic(err)
+	}
+	r8.Description = "Prometheus push timeout seconds"
+	config.Add(r8)
+
 	cp.Add([]string{""}, config)
 	return cp, nil
 }
@@ -136,22 +165,53 @@ func (p *prometheusPublisher) Publish(contentType string, content []byte, config
 		return fmt.Errorf("Unknown content type '%s'", contentType)
 	}
 
-	client, err := selectClient(config)
 	promUrl, err := prometheusUrl(config)
 	if err != nil {
 		panic(err)
 	}
 
-	sendMetrics(config, promUrl, client, metrics)
+	b := backoff.NewExponentialBackOff()
+	retries := config["retries"].(ctypes.ConfigValueInt).Value
+	for retry := 0; retry < retries; retry++ {
+		forceRefresh := retry > 0
+
+		client, err := selectClient(config, forceRefresh)
+		if err != nil {
+			logger.Printf("Could not select a Prometheus client (retry %d of %d): %v",
+				retry, retries, err)
+			if retry+1 < retries {
+				backoffDuration := b.NextBackOff()
+				logger.Printf("Backing off next Prometheus request by: %v", backoffDuration)
+				time.Sleep(backoffDuration)
+			}
+			continue
+		}
+
+		err = sendMetrics(config, promUrl, client, metrics)
+		if err != nil {
+			logger.Printf("Could not send metrics to Prometheus (retry %d of %d): %v",
+				retry, retries, err)
+			if retry+1 < retries {
+				backoffDuration := b.NextBackOff()
+				logger.Printf("Backing off next Prometheus request by: %v", backoffDuration)
+				time.Sleep(backoffDuration)
+			}
+			continue
+		}
+
+		break
+	}
+
 	return nil
 }
 
-func sendMetrics(config map[string]ctypes.ConfigValue, promUrl *url.URL, client *clientConnection, metrics []plugin.MetricType) {
+func sendMetrics(config map[string]ctypes.ConfigValue,
+	promUrl *url.URL, client *clientConnection, metrics []plugin.MetricType) error {
 	logger := getLogger(config)
 	buf := new(bytes.Buffer)
 	for _, m := range metrics {
-		name, tags, value, ts := mangleMetric(m)
-		buf.WriteString(prometheusString(name, tags, value, ts))
+		name, tags, value, _ := mangleMetric(m, config)
+		buf.WriteString(prometheusString(name, tags, value))
 		buf.WriteByte('\n')
 	}
 
@@ -160,29 +220,32 @@ func sendMetrics(config map[string]ctypes.ConfigValue, promUrl *url.URL, client 
 	res, err := client.Conn.Do(req)
 	if err != nil {
 		logger.Error("Error sending data to Prometheus: %v", err)
-		return
+		return err
 	}
 	defer res.Body.Close()
 	_, err = ioutil.ReadAll(res.Body)
 	if err != nil {
 		logger.Error("Error getting Prometheus response: %v", err)
+		return err
 	}
+	return nil
 }
 
-func prometheusString(name string, tags map[string]string, value string, ts int64) string {
+func prometheusString(name string, tags map[string]string, value string) string {
 	tmp1 := []string{}
 	for k, v := range tags {
 		tmp1 = append(tmp1, fmt.Sprintf("%s=\"%s\"", k, v))
 	}
-	return fmt.Sprintf("%s{%s} %s %d",
+	return fmt.Sprintf("%s{%s} %s",
 		name,
 		strings.Join(tmp1, ","),
 		value,
-		ts,
 	)
 }
 
-func mangleMetric(m plugin.MetricType) (name string, tags map[string]string, value string, ts int64) {
+func mangleMetric(m plugin.MetricType,
+	config map[string]ctypes.ConfigValue) (name string,
+	tags map[string]string, value string, ts int64) {
 	tags = make(map[string]string)
 	ns := m.Namespace().Strings()
 	isDynamic, indexes := m.Namespace().IsDynamic()
@@ -202,6 +265,11 @@ func mangleMetric(m plugin.MetricType) (name string, tags map[string]string, val
 
 	for i, v := range ns {
 		ns[i] = invalidMetric.ReplaceAllString(v, "_")
+	}
+
+	instance := config["instance"].(ctypes.ConfigValueStr).Value
+	if len(instance) > 0 {
+		tags["instance"] = instance
 	}
 
 	// Add "unit"" if we do not already have a "unit" tag
@@ -237,14 +305,20 @@ func prometheusUrl(config map[string]ctypes.ConfigValue) (*url.URL, error) {
 		prefix = "https"
 	}
 
-	u, err := url.Parse(fmt.Sprintf("%s://%s:%d/metrics/job/unused", prefix, config["host"].(ctypes.ConfigValueStr).Value, config["port"].(ctypes.ConfigValueInt).Value))
+	u, err := url.Parse(fmt.Sprintf("%s://%s:%d/metrics/job/%s",
+		prefix,
+		config["host"].(ctypes.ConfigValueStr).Value,
+		config["port"].(ctypes.ConfigValueInt).Value,
+		config["job"].(ctypes.ConfigValueStr).Value,
+	))
 	if err != nil {
 		return nil, err
 	}
 	return u, nil
 }
 
-func selectClient(config map[string]ctypes.ConfigValue) (*clientConnection, error) {
+func selectClient(
+	config map[string]ctypes.ConfigValue, forceRefresh bool) (*clientConnection, error) {
 	// This is not an ideal way to get the logger but deferring solving this for a later date
 	logger := getLogger(config)
 
@@ -256,9 +330,12 @@ func selectClient(config map[string]ctypes.ConfigValue) (*clientConnection, erro
 	key := fmt.Sprintf("%s", promUrl.String())
 
 	// Do we have a existing client?
-	if clientPool[key] == nil {
+	if clientPool[key] == nil || forceRefresh {
 		// create one and add to the pool
-		con := &http.Client{}
+		timeoutSecs := int64(config["timeout_secs"].(ctypes.ConfigValueInt).Value)
+		con := &http.Client{
+			Timeout: time.Second * time.Duration(timeoutSecs),
+		}
 
 		if err != nil {
 			return nil, err

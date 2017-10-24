@@ -1,6 +1,9 @@
 package: github.com/hstack/snap-plugin-publisher-prometheus
 import:
+- package: github.com/sirupsen/logrus
+  version: be52937128b38f1d99787bb476c789e2af1147f1
 - package: github.com/Sirupsen/logrus
+  repo: https://github.com/sirupsen/logrus.git
   version: be52937128b38f1d99787bb476c789e2af1147f1
 - package: github.com/intelsdi-x/snap
   version: 0b2c0313ff98ef3feccf78ff56a51bb44ccbe5bc
@@ -24,3 +27,5 @@ import:
   - protoc-gen-go
 - package: google.golang.org/grpc
   version: 42c095b6c9bdd80d4435b064508c398afdb0ec99
+- package: github.com/cenkalti/backoff
+  version: 309aa717adbf351e92864cbedf9cca0b769a4b5a
