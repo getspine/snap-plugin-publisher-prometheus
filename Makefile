@@ -18,7 +18,7 @@
 
 default:
 	$(MAKE) clean
-	$(MAKE) deps
+	#$(MAKE) deps
 	$(MAKE) all
 clean:
 	-rm -rf build/

@@ -138,7 +138,7 @@ func (p *prometheusPublisher) GetConfigPolicy() (*cpolicy.ConfigPolicy, error) {
 	r8.Description = "Prometheus push timeout seconds"
 	config.Add(r8)
 
-	r9, err := cpolicy.NewBoolRule("replace", false, true)
+	r9, err := cpolicy.NewBoolRule("replace", false, false)
 	if err != nil {
 		panic(err)
 	}
