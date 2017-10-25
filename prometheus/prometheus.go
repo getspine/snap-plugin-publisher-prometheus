@@ -138,6 +138,13 @@ func (p *prometheusPublisher) GetConfigPolicy() (*cpolicy.ConfigPolicy, error) {
 	r8.Description = "Prometheus push timeout seconds"
 	config.Add(r8)
 
+	r9, err := cpolicy.NewBoolRule("replace", false, true)
+	if err != nil {
+		panic(err)
+	}
+	r9.Description = "Replace metrics within Pushgateway upon push"
+	config.Add(r9)
+
 	cp.Add([]string{""}, config)
 	return cp, nil
 }
@@ -215,7 +222,15 @@ func sendMetrics(config map[string]ctypes.ConfigValue,
 		buf.WriteByte('\n')
 	}
 
-	req, err := http.NewRequest("PUT", promUrl.String(), bytes.NewReader(buf.Bytes()))
+	// A PUT will update the value of a metric for a job, a POST will replace those metrics
+	// with those that were pushed.
+	httpMethod := "PUT"
+	shouldReplace := config["replace"].(ctypes.ConfigValueBool).Value
+	if shouldReplace {
+		httpMethod = "POST"
+	}
+
+	req, err := http.NewRequest(httpMethod, promUrl.String(), bytes.NewReader(buf.Bytes()))
 	req.Header.Set("Content-Type", "text/plain; version=0.0.4")
 	res, err := client.Conn.Do(req)
 	if err != nil {
@@ -267,11 +282,6 @@ func mangleMetric(m plugin.MetricType,
 		ns[i] = invalidMetric.ReplaceAllString(v, "_")
 	}
 
-	instance := config["instance"].(ctypes.ConfigValueStr).Value
-	if len(instance) > 0 {
-		tags["instance"] = instance
-	}
-
 	// Add "unit"" if we do not already have a "unit" tag
 	if _, ok := m.Tags()["unit"]; !ok {
 		tags["unit"] = m.Unit()
@@ -305,12 +315,28 @@ func prometheusUrl(config map[string]ctypes.ConfigValue) (*url.URL, error) {
 		prefix = "https"
 	}
 
-	u, err := url.Parse(fmt.Sprintf("%s://%s:%d/metrics/job/%s",
-		prefix,
-		config["host"].(ctypes.ConfigValueStr).Value,
-		config["port"].(ctypes.ConfigValueInt).Value,
-		config["job"].(ctypes.ConfigValueStr).Value,
-	))
+	instance := config["instance"].(ctypes.ConfigValueStr).Value
+
+	var u *url.URL
+	var err error
+
+	if len(instance) > 0 {
+		u, err = url.Parse(fmt.Sprintf("%s://%s:%d/metrics/job/%s/instance/%s",
+			prefix,
+			config["host"].(ctypes.ConfigValueStr).Value,
+			config["port"].(ctypes.ConfigValueInt).Value,
+			config["job"].(ctypes.ConfigValueStr).Value,
+			instance,
+		))
+	} else {
+		u, err = url.Parse(fmt.Sprintf("%s://%s:%d/metrics/job/%s",
+			prefix,
+			config["host"].(ctypes.ConfigValueStr).Value,
+			config["port"].(ctypes.ConfigValueInt).Value,
+			config["job"].(ctypes.ConfigValueStr).Value,
+		))
+	}
+
 	if err != nil {
 		return nil, err
 	}
